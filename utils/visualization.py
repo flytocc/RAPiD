@@ -3,6 +3,8 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
+from .utils import print_rank
+
 
 def draw_xywha(im, x, y, w, h, angle, color=(255,0,0), linewidth=5):
     '''
@@ -37,7 +39,7 @@ def draw_dt_on_np(im, detections, print_dt=False, color=(255,0,0),
             conf = -1
         x1, y1 = x - w/2, y - h/2
         if print_dt:
-            print(f'[{x} {y} {w} {h} {a}], confidence: {conf}')
+            print_rank(f'[{x} {y} {w} {h} {a}], confidence: {conf}')
         draw_xywha(im, x, y, w, h, a, color=color, linewidth=line_width)
         if kwargs.get('show_conf', True):
             cv2.putText(im, f'{conf:.2f}', (int(x1),int(y1)), font, 1*text_size,

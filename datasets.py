@@ -8,7 +8,7 @@ from collections import defaultdict
 import torch
 import torchvision.transforms.functional as tvf
 
-from utils.utils import normalize_bbox, rect_to_square
+from utils.utils import normalize_bbox, rect_to_square, print_rank
 import utils.augmentation as augUtils
 
 
@@ -34,7 +34,7 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         self.enable_aug = augmentation
         self.only_person = only_person
         if only_person:
-            print('Only train on person images and objects')
+            print_rank('Only train on person images and objects')
 
         self.img_ids = []
         # self.imgid2info = dict()
@@ -51,7 +51,7 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         if debug_mode:
             # self.img_ids = self.img_ids[0:1]
             self.img_ids = [428856]
-            print(f"debug mode..., only train on one image: {self.img_ids[0]}")
+            print_rank(f"debug mode..., only train on one image: {self.img_ids[0]}")
 
         # transform and data augmentation
         # self.pil_aug_to_tensor = transforms.Compose([
@@ -65,9 +65,10 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         laod json file to self.img_ids, self.imgid2anns
         '''
         self.coco = False
-        print(f'Loading annotations {json_path} into memory...')
+        print_rank(f'Loading annotations {json_path} into memory...')
         with open(json_path, 'r') as f:
             json_data = json.load(f)
+        ignored = 0
         for ann in json_data['annotations']:
             img_id = ann['image_id']
             # get width and height
@@ -87,11 +88,15 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
             if ann['bbox'][2] == ann['bbox'][3]:
                 ann['bbox'][3] += 1 # force that w < h
             ann['bbox'] = torch.Tensor(ann['bbox'])
-            assert ann['bbox'][2] < ann['bbox'][3]
+            if ann['bbox'][2] >= ann['bbox'][3]:
+                ignored += 1
+            # assert ann['bbox'][2] < ann['bbox'][3]
             if ann['bbox'][4] == 90:
                 ann['bbox'][4] = -90
             assert ann['bbox'][4] >= -90 and ann['bbox'][4] < 90
             self.imgid2anns[img_id].append(ann)
+        if ignored > 0:
+            print_rank(f"ignore {ignored} anns")
         for img in json_data['images']:
             img_id = img['id']
             assert img_id not in self.imgid2path
@@ -111,7 +116,7 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
             # self.imgid2info[img['id']] = img
         self.catids = [cat['id'] for cat in json_data['categories']]
         if self.coco:
-            print('Training on perspective images; adding angle to BBs')
+            print_rank('Training on perspective images; adding angle to BBs')
         else:
             assert self.only_person
 
@@ -134,7 +139,7 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         img = Image.open(img_path)
         ori_w, ori_h = img.width, img.height
         if img.mode == 'L':
-            # print(f'Warning: image {img_id} is grayscale')
+            # print_rank(f'Warning: image {img_id} is grayscale')
             img = np.array(img)
             img = np.repeat(np.expand_dims(img,2), 3, axis=2)
             img = Image.fromarray(img)
@@ -158,8 +163,8 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
                 continue
             # assert ann['category_id'] == 1, 'only support person object'
             if li >= 50:
-                print(self.only_person)
-                print(categories)
+                print_rank(self.only_person)
+                print_rank(categories)
                 break
             labels[li,:] = ann['bbox']
             categories[li] = self.catids.index(ann['category_id'])

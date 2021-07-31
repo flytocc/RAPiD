@@ -8,6 +8,8 @@ import numpy as np
 import cv2
 from PIL import Image
 
+from .utils import print_rank
+
 
 class Video4Detector():
     def __init__(self, video_path):
@@ -55,13 +57,13 @@ class Images4Detector():
         self.img_names.sort()
         self.img_dir = images_dir
         if img_type == 'PIL':
-            print('Using PIL.Image format')
+            print_rank('Using PIL.Image format')
             self.imread = Image.open
         elif img_type == 'cv2':
-            print('Using cv2 image format, i.e., BGR')
+            print_rank('Using cv2 image format, i.e., BGR')
             self.imread = cv2.imread
         elif img_type == 'plt':
-            print('Using plt image format, i.e., standard RGB')
+            print_rank('Using plt image format, i.e., standard RGB')
             import matplotlib.pyplot as plt
             self.imread = plt.imread
         # ground truths

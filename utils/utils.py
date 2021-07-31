@@ -1,6 +1,7 @@
 from PIL import Image
 import random
 import torch
+import torch.distributed as dist
 from torchvision import transforms
 
 from utils.iou_mask import iou_mask, iou_rle
@@ -144,3 +145,39 @@ def nms(detections, is_degree=True, nms_thres=0.45, img_size=2048):
 
     selected = detections[valid,:]
     return selected
+
+
+def is_main_process():
+    if not dist.is_available():
+        return True
+    if not dist.is_initialized():
+        return True
+    return dist.get_rank() == 0
+
+
+def print_rank(*arg, **kwargs):
+    if is_main_process():
+        print(*arg, **kwargs)
+
+
+def get_world_size():
+    if not dist.is_available():
+        return 1
+    if not dist.is_initialized():
+        return 1
+    return dist.get_world_size()
+
+
+def synchronize():
+    """
+    Helper function to synchronize (barrier) among all processes when
+    using distributed training
+    """
+    if not dist.is_available():
+        return
+    if not dist.is_initialized():
+        return
+    world_size = dist.get_world_size()
+    if world_size == 1:
+        return
+    dist.barrier()

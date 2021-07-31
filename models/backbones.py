@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models
 
+from utils.utils import print_rank
+
 
 def ConvBnLeaky(in_, out_, k, s):
     '''
@@ -119,17 +121,17 @@ class ResNetBackbone(nn.Module):
         return small, medium, large
 
 def resnet34():
-    print('Using backbone ResNet-34. Loading ImageNet weights...')
+    print_rank('Using backbone ResNet-34. Loading ImageNet weights...')
     model = torchvision.models.resnet34(pretrained=True)
     return ResNetBackbone(model)
 
 def resnet50():
-    print('Using backbone ResNet-50. Loading ImageNet weights...')
+    print_rank('Using backbone ResNet-50. Loading ImageNet weights...')
     model = torchvision.models.resnet50(pretrained=True)
     return ResNetBackbone(model)
 
 def resnet101():
-    print('Using backbone ResNet-101. Loading ImageNet weights...')
+    print_rank('Using backbone ResNet-101. Loading ImageNet weights...')
     model = torchvision.models.resnet101(pretrained=True)
     return ResNetBackbone(model)
 

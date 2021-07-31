@@ -7,6 +7,7 @@ import torch
 import torchvision.transforms.functional as tvf
 
 from utils import visualization, dataloader, utils
+from utils.utils import print_rank
 
 
 class Detector():
@@ -37,18 +38,18 @@ class Detector():
         else:
             raise NotImplementedError()
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print(f'Successfully initialized model {model_name}.',
+        print_rank(f'Successfully initialized model {model_name}.',
             'Total number of trainable parameters:', total_params)
         
         model.load_state_dict(torch.load(weights_path)['model'])
-        print(f'Successfully loaded weights: {weights_path}')
+        print_rank(f'Successfully loaded weights: {weights_path}')
         model.eval()
         if kwargs.get('use_cuda', True):
-            print("Using CUDA...")
+            print_rank("Using CUDA...")
             assert torch.cuda.is_available()
             self.model = model.cuda()
         else:
-            print("Using CPU instead of CUDA...")
+            print_rank("Using CPU instead of CUDA...")
             self.model = model
 
     def detect_one(self, **kwargs):
@@ -133,8 +134,7 @@ class Detector():
         input_ = input_ori.unsqueeze(0)
 
         assert input_.dim() == 4
-        device = next(self.model.parameters()).device
-        input_ = input_.to(device=device)
+        input_ = input_.cuda()
         with torch.no_grad():
             dts = self.model(input_).cpu()
 
@@ -163,11 +163,10 @@ def detect_once(model, pil_img, conf_thres, nms_thres=0.45, input_size=608):
     '''
     Run the model on the pil_img and return the detections.
     '''
-    device = next(model.parameters()).device
     ori_w, ori_h = pil_img.width, pil_img.height
     input_img, _, pad_info = utils.rect_to_square(pil_img, None, input_size, 0)
 
-    input_img = tvf.to_tensor(input_img).to(device=device)
+    input_img = tvf.to_tensor(input_img).cuda()
     with torch.no_grad():
         dts = model(input_img[None]).cpu().squeeze()
     dts = dts[dts[:,5] >= conf_thres].cpu()

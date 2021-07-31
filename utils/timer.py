@@ -1,6 +1,7 @@
 import time
 import datetime
 
+
 class contexttimer:
     def __enter__(self):
         self.start = time.time()

@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torchvision.transforms.functional as tvf
 
+from utils.utils import print_rank
 from utils.iou_mask import iou_mask, iou_rle
 import models.backbones
 import models.losses
@@ -26,13 +27,13 @@ class RAPiD(nn.Module):
 
         if backbone == 'dark53':
             self.backbone = models.backbones.Darknet53()
-            print("Using backbone Darknet-53. Loading ImageNet weights....")
+            print_rank("Using backbone Darknet-53. Loading ImageNet weights....")
             backbone_imgnet_path = './weights/dark53_imgnet.pth'
             if os.path.exists(backbone_imgnet_path):
                 pretrained = torch.load(backbone_imgnet_path)
                 self.load_state_dict(pretrained)
             else:
-                print('Warning: no ImageNet-pretrained weights found.',
+                print_rank('Warning: no ImageNet-pretrained weights found.',
                       'Please check https://github.com/duanzhiihao/RAPiD for it.')
         elif backbone == 'res34':
             self.backbone = models.backbones.resnet34()
@@ -43,7 +44,7 @@ class RAPiD(nn.Module):
         else:
             raise Exception('Unknown backbone name')
         pnum = sum(p.numel() for p in self.backbone.parameters() if p.requires_grad)
-        print('Number of parameters in backbone:', pnum)
+        print_rank('Number of parameters in backbone:', pnum)
 
         if backbone == 'dark53':
             chS, chM, chL = 256, 512, 1024
@@ -218,9 +219,9 @@ class PredLayer(nn.Module):
         ti_all = tx_all.long()
         tj_all = ty_all.long()
 
-        norm_anch_wh = anchors[:,0:2] / img_hw # normalized
+        norm_anch_wh = anchors[:,0:2] / torch.tensor(img_hw).to(anchors.device).view(1, 2) # normalized
         norm_anch_00wha = self.anch_00wha_all.clone().to(device=device)
-        norm_anch_00wha[:,2:4] /= img_hw # normalized
+        norm_anch_00wha[:,2:4] /= torch.tensor(img_hw).to(anchors.device).view(1, 2) # normalized
 
         # traverse all images in a batch
         valid_gt_num = 0
@@ -259,7 +260,7 @@ class PredLayer(nn.Module):
             gt_boxes[:, 1] = ty_all[b, :n] / nH # normalized 0-1
             gt_boxes[:, 4] = ta_all[b, :n] # degree
 
-            # print(torch.cuda.memory_allocated()/1024/1024/1024, 'GB')
+            # print_rank(torch.cuda.memory_allocated()/1024/1024/1024, 'GB')
             # gt_boxes e.g. shape(11,4)
             selected_idx = pred_confs[b] > 0.001
             selected = pred_boxes[b][selected_idx]

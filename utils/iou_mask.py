@@ -215,10 +215,10 @@ def iou_pairs_mask(boxes1, boxes2, xywha, mask_size=128, is_degree=True):
 
             x1,y1,w1,h1 = boxes1[i,:4]
             a1 = boxes1[i,4] * 180 / pi
-            print(f'box 1, x: {x1}, y: {y1}, w: {w1}, h: {h1}, a: {a1}')
+            print_rank(f'box 1, x: {x1}, y: {y1}, w: {w1}, h: {h1}, a: {a1}')
             x2,y2,w2,h2 = boxes2[i,:4]
             a2 = boxes2[i,4] * 180 / pi
-            print(f'box 2, x: {x2}, y: {y2}, w: {w2}, h: {h2}, a: {a2}')
+            print_rank(f'box 2, x: {x2}, y: {y2}, w: {w2}, h: {h2}, a: {a2}')
 
             plt.subplot(2,2,1)
             plt.title('box1')
@@ -326,7 +326,7 @@ def iou_rle(boxes1, boxes2, xywha, is_degree=True, **kwargs):
     assert boxes1.shape[1] == boxes2.shape[1] == 5
     
     size = kwargs.get('img_size', 2048)
-    h,w = size if isinstance(size, tuple) else size,size
+    h,w = size if isinstance(size, (tuple, torch.Size)) else (size,size)
     if 'normalized' in kwargs and kwargs['normalized'] == True:
         # the [x,y,w,h] are between 0~1
         # assert (boxes1[:,:4] <= 1).all() and (boxes2[:,:4] <= 1).all()

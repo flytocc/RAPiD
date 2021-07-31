@@ -3,6 +3,7 @@ from collections import defaultdict
 import numpy as np
 import torch
 from .iou_mask import iou_mask, iou_rle
+from .utils import print_rank
 
 
 class MWeval():
@@ -182,7 +183,7 @@ class MWeval():
         '''
         Accumulate the TP/FP in all images to create the P-R curve
         '''
-        print('accumulating results')
+        print_rank('accumulating results')
         num_gt = self.num_gt
         tps = torch.cat(self.tps, dim=1)
         # sort all the tps in descending order of score
@@ -203,8 +204,8 @@ class MWeval():
         precision = tp_sum / (tp_sum+fp_sum)
         recall = tp_sum / num_gt
         f1 = 2 * (precision*recall) / (precision + recall)
-        # print('p', precision[0,:100])
-        # print('r', recall[0,:100])
+        # print_rank('p', precision[0,:100])
+        # print_rank('r', recall[0,:100])
         if kwargs.get('debug', False):
             import matplotlib.pyplot as plt
             p = precision[0,:].numpy()
@@ -276,7 +277,7 @@ class MWeval():
         '''
         P-R curve to string for TP/FP/F-score
         '''
-        print('computing TP, FP, FN, Precision, Recall, and F1 score')
+        print_rank('computing TP, FP, FN, Precision, Recall, and F1 score')
         tps = torch.cat(self.tps, dim=1)
         num_dt = tps.shape[1]
         num_gt = self.num_gt
