@@ -69,6 +69,7 @@ class Images4Detector():
             self.load_gt(gt_json)
         else:
             self.imgid2anns = None
+            self.im_id_map = {}
         # attributes
         self.total_frame_num = len(self.img_names)
         first = Image.open(os.path.join(self.img_dir, self.img_names[0]))
@@ -84,6 +85,9 @@ class Images4Detector():
             ann['bbox'] = torch.Tensor(ann['bbox'])
             imgid2anns[img_id].append(ann)
         self.imgid2anns = imgid2anns
+        self.im_id_map = {im_info['file_name']: im_info['id'] for im_info in json_data['images']}
+        self.img_names = [im for im in self.img_names if im in self.im_id_map]
+        self.img_names.sort()
 
     def __len__(self):
         return self.total_frame_num
@@ -100,7 +104,7 @@ class Images4Detector():
         frame = self.imread(img_path)
         # assert frame.width == self.frame_w and frame.height == self.frame_h
         # load ground truth
-        image_id = img_name[:-4]
+        image_id = self.im_id_map.get(img_name, img_name[:-4])
         if self.imgid2anns:
             anns = self.imgid2anns[image_id]
         else:

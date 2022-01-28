@@ -35,11 +35,12 @@ if __name__ == "__main__":
     parser.add_argument('--metric', type=str,
                         default='AP',
                         choices=['AP', 'F', 'counting'])
+    parser.add_argument('--weight', type=str)
     args = parser.parse_args()
 
     # initialize RAPiD
     rapid = Detector(model_name='rapid',
-                     weights_path='./weights/pL1_MWHB1024_Mar11_4000.ckpt')
+                     weights_path=args.weight)
 
     # Run RAPiD on the image sequence
     conf_thres = 0.005 if args.metric == 'AP' else 0.3

@@ -30,6 +30,8 @@ def parse_args():
     parser.add_argument('--print_interval', type=int, default=1)
     parser.add_argument('--checkpoint_interval', type=int, default=2000)
     
+    parser.add_argument('--iters', type=int, default=100000)
+
     parser.add_argument('--debug', action='store_true') # default=True)
     return parser.parse_args()
 
@@ -50,13 +52,14 @@ if __name__ == '__main__':
     multiscale_interval = 10
     # SGD optimizer
     decay_SGD = 0.0005 * batch_size * subdivision
+    iter_scale = args.iters / 500000
     print(f'effective batch size = {batch_size} * {subdivision}')
     # dataset setting
     print('initialing dataloader...')
     if args.dataset == 'COCO':
-        train_img_dir = '../Datasets/COCO/train2017'
+        train_img_dir = './Datasets/COCO/train2017'
         assert 'COCO' in train_img_dir # issue #11
-        train_json = '../Datasets/COCO/annotations/instances_train2017.json'
+        train_json = './Datasets/COCO/annotations/instances_train2017.json'
         val_img_dir = './images/tiny_val/one'
         val_json = './images/tiny_val/one.json'
         lr_SGD = 0.001 / batch_size / subdivision
@@ -99,10 +102,10 @@ if __name__ == '__main__':
                   'Lunch1', 'Lunch2', 'Lunch3', 'Edge_cases', 'IRill', 'Activity']
         # if args.high_resolution:
         #     videos += ['All_off', 'IRfilter', 'IRill']
-        train_img_dir = [f'../../../COSSY/{s}/' for s in videos]
-        train_json = [f'../../../COSSY/annotations/{s}.json' for s in videos]
-        val_img_dir = '../../../COSSY/Lab1/'
-        val_json = '../../../COSSY/annotations/Lab1.json'
+        train_img_dir = [f'./Datasets/COSSY/{s}/' for s in videos]
+        train_json = [f'./Datasets/COSSY/annotations/{s}.json' for s in videos]
+        val_img_dir = './Datasets/COSSY/Lab1/'
+        val_json = './Datasets/COSSY/annotations/Lab1.json'
         lr_SGD = 0.0001 / batch_size / subdivision
         # Learning rate setup
         def burnin_schedule(i):
@@ -118,19 +121,19 @@ if __name__ == '__main__':
             return factor
     elif args.dataset == 'HBMW':
         train_img_dir = [
-            '../Datasets/fisheye/HABBOF/Meeting1',
-            '../Datasets/fisheye/HABBOF/Meeting2',
-            '../Datasets/fisheye/HABBOF/Lab2',
-            '../Datasets/fisheye/MW-R'
+            './Datasets/fisheye/HABBOF/Meeting1',
+            './Datasets/fisheye/HABBOF/Meeting2',
+            './Datasets/fisheye/HABBOF/Lab2',
+            './Datasets/fisheye/MW-R'
         ]
         train_json = [
-            '../Datasets/fisheye/annotations/Meeting1.json',
-            '../Datasets/fisheye/annotations/Meeting2.json',
-            '../Datasets/fisheye/annotations/Lab2.json',
-            '../Datasets/fisheye/annotations/MW-R.json'
+            './Datasets/fisheye/annotations/Meeting1.json',
+            './Datasets/fisheye/annotations/Meeting2.json',
+            './Datasets/fisheye/annotations/Lab2.json',
+            './Datasets/fisheye/annotations/MW-R.json'
         ]
-        val_img_dir = '../Datasets/fisheye/HABBOF/Lab1/'
-        val_json = '../Datasets/fisheye/annotations/Lab1.json'
+        val_img_dir = './Datasets/fisheye/HABBOF/Lab1/'
+        val_json = './Datasets/fisheye/annotations/Lab1.json'
         lr_SGD = 0.0001 / batch_size / subdivision
         # Learning rate setup
         def burnin_schedule(i):
@@ -149,10 +152,28 @@ if __name__ == '__main__':
                   'MW']
         # if args.high_resolution:
         #     videos += ['All_off', 'IRfilter']
-        train_img_dir = [f'../../../COSSY/{s}/' for s in videos]
-        train_json = [f'../../../COSSY/annotations/{s}.json' for s in videos]
-        val_img_dir = '../../../COSSY/Lunch3/'
-        val_json = '../../../COSSY/annotations/Lunch3.json'
+        train_img_dir = [f'./Datasets/COSSY/{s}/' for s in videos]
+        train_json = [f'./Datasets/COSSY/annotations/{s}.json' for s in videos]
+        val_img_dir = './Datasets/COSSY/Lunch3/'
+        val_json = './Datasets/COSSY/annotations/Lunch3.json'
+        lr_SGD = 0.0001 / batch_size / subdivision
+        # Learning rate setup
+        def burnin_schedule(i):
+            burn_in = int(500 * iter_scale)
+            if i < burn_in:
+                factor = (i / burn_in) ** 2
+            elif i < int(10000 * iter_scale):
+                factor = 1.0
+            elif i < int(20000 * iter_scale):
+                factor = 0.3
+            else:
+                factor = 0.1
+            return factor
+    elif args.dataset == 'LOAF':
+        train_img_dir = ['./Datasets/LOAF-v1/images_736/train/']
+        train_json = ['./Datasets/LOAF-v1/annotations/instances_train.json']
+        val_img_dir = './Datasets/LOAF-v1/images_736/val/'
+        val_json = './Datasets/LOAF-v1/annotations/instances_val.json'
         lr_SGD = 0.0001 / batch_size / subdivision
         # Learning rate setup
         def burnin_schedule(i):
@@ -208,7 +229,7 @@ if __name__ == '__main__':
     if args.dataset == 'COCO':
         optimizer = torch.optim.SGD(params, lr=lr_SGD, momentum=0.9, dampening=0,
                                     weight_decay=decay_SGD)
-    elif args.dataset in {'MW', 'HBCP', 'HBMW', 'CPMW'}:
+    elif args.dataset in {'MW', 'HBCP', 'HBMW', 'CPMW', 'LOAF'}:
         assert args.checkpoint is not None
         optimizer = torch.optim.SGD(params, lr=lr_SGD)
     else:
@@ -217,20 +238,20 @@ if __name__ == '__main__':
     if args.dataset not in args.checkpoint:
         start_iter = -1
     else:
-        optimizer.load_state_dict(state['optimizer_state_dict'])
+        optimizer.load_state_dict(state['optimizer'])
         print(f'begin from iteration: {start_iter}')
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, burnin_schedule, last_epoch=start_iter)
 
     # start training loop
     today = timer.today()
     start_time = timer.tic()
-    for iter_i in range(start_iter, 500000):
+    for iter_i in range(start_iter, int(round(500000 * iter_scale))):
         # evaluation
         if iter_i % args.eval_interval == 0 and (args.dataset != 'COCO' or iter_i > 0):
             with timer.contexttimer() as t0:
                 model.eval()
                 model_eval = api.Detector(conf_thres=0.005, model=model)
-                dts = model_eval.detect_imgSeq(val_img_dir, input_size=target_size)
+                dts = model_eval.detect_imgSeq(val_img_dir, input_size=target_size, gt_path=val_json)
                 str_0 = val_set.evaluate_dtList(dts, metric='AP')
             s = f'\nCurrent time: [ {timer.now()} ], iteration: [ {iter_i} ]\n\n'
             s += str_0 + '\n\n'
@@ -285,7 +306,7 @@ if __name__ == '__main__':
             dataiterator = iter(dataloader)
 
         # save checkpoint
-        if iter_i > 0 and (iter_i % args.checkpoint_interval == 0):
+        if (iter_i > 0 and (iter_i % args.checkpoint_interval == 0)) or iter_i == int(round(500000 * iter_scale)) - 1:
             state_dict = {
                 'iter': iter_i,
                 'model': model.state_dict(),

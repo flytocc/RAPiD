@@ -68,6 +68,7 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         print(f'Loading annotations {json_path} into memory...')
         with open(json_path, 'r') as f:
             json_data = json.load(f)
+        ignored = 0
         for ann in json_data['annotations']:
             img_id = ann['image_id']
             # get width and height
@@ -84,6 +85,10 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
             else:
                 # using rotated bounding box datasets. 5 = [cx,cy,w,h,angle]
                 assert len(ann['bbox']) == 5, 'Unknown bbox format' # x,y,w,h,a
+            if ann['bbox'][2] > ann['bbox'][3]:
+                ignored += 1
+                continue
+                # ann['bbox'][2] = ann['bbox'][3] = (ann['bbox'][2] + ann['bbox'][3]) / 2
             if ann['bbox'][2] == ann['bbox'][3]:
                 ann['bbox'][3] += 1 # force that w < h
             ann['bbox'] = torch.Tensor(ann['bbox'])
@@ -92,6 +97,8 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
                 ann['bbox'][4] = -90
             assert ann['bbox'][4] >= -90 and ann['bbox'][4] < 90
             self.imgid2anns[img_id].append(ann)
+        if ignored > 0:
+            print(f"ignore {ignored} anns")
         for img in json_data['images']:
             img_id = img['id']
             assert img_id not in self.imgid2path
