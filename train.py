@@ -207,7 +207,7 @@ if __name__ == '__main__':
     assert batch_size % num_gpus == 0
     ims_per_gpu = batch_size // num_gpus
     if distributed:
-        sampler = DistributedSampler(dataset, seed=random.randint(0, 1e9))
+        sampler = DistributedSampler(dataset)
         dataloader = DataLoader(dataset, batch_size=ims_per_gpu, sampler=sampler,
                                 num_workers=num_cpu, pin_memory=True, drop_last=False)
     else:
