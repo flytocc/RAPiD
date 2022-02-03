@@ -3,7 +3,8 @@ import os
 import argparse
 import random
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.tensorboard import SummaryWriter
 from PIL import Image
 import numpy as np
@@ -12,6 +13,8 @@ import cv2
 from datasets import Dataset4YoloAngle
 from utils import MWtools, timer, visualization
 import api
+
+from utils.utils import get_world_size, is_main_process, setup_for_distributed, all_gather
 
 
 def parse_args():
@@ -31,6 +34,8 @@ def parse_args():
     parser.add_argument('--checkpoint_interval', type=int, default=2000)
     
     parser.add_argument('--iters', type=int, default=100000)
+    parser.add_argument('--local_rank', type=int, default=0)
+    parser.add_argument('--multi_gpu', action='store_true')
 
     parser.add_argument('--debug', action='store_true') # default=True)
     return parser.parse_args()
@@ -39,13 +44,22 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
     assert torch.cuda.is_available() # Currently do not support CPU training
+
+    torch.cuda.set_device(args.local_rank)
+    if args.multi_gpu:
+        torch.distributed.init_process_group(backend="nccl", init_method="env://")
+        setup_for_distributed()
+    num_gpus = get_world_size()
+    distributed = num_gpus > 1
+
     # -------------------------- settings ---------------------------
     target_size = 1024 if args.high_resolution else 608
     initial_size = 1088 if args.high_resolution else 672
     job_name = f'{args.model}_{args.backbone}_{args.dataset}{target_size}'
     # dataloader setting
     batch_size = args.batch_size
-    num_cpu = 0 if batch_size == 1 else 4
+    num_cpu = 0 if args.debug or batch_size == 1 else 4
+    assert 128 % batch_size == 0
     subdivision = 128 // batch_size
     enable_aug = True
     multiscale = True
@@ -189,8 +203,16 @@ if __name__ == '__main__':
             return factor
     dataset = Dataset4YoloAngle(train_img_dir, train_json, initial_size, enable_aug,
                                 only_person=True, debug_mode=args.debug)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
-                            num_workers=num_cpu, pin_memory=True, drop_last=False)
+
+    assert batch_size % num_gpus == 0
+    ims_per_gpu = batch_size // num_gpus
+    if distributed:
+        sampler = DistributedSampler(dataset, seed=random.randint(0, 1e9))
+        dataloader = DataLoader(dataset, batch_size=ims_per_gpu, sampler=sampler,
+                                num_workers=num_cpu, pin_memory=True, drop_last=False)
+    else:
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+                                num_workers=num_cpu, pin_memory=True, drop_last=False)
     dataiterator = iter(dataloader)
     
     if args.model == 'rapid_pL1':
@@ -202,13 +224,11 @@ if __name__ == '__main__':
         model = RAPiD(backbone=args.backbone, img_norm=False,
                        loss_angle='period_L2')
     
-    model = model.cuda()
-
     start_iter = -1
     if args.checkpoint:
         print("loading ckpt...", args.checkpoint)
         weights_path = os.path.join('./weights/', args.checkpoint)
-        state = torch.load(weights_path)
+        state = torch.load(weights_path, map_location='cpu')
         model.load_state_dict(state['model'])
         start_iter = state['iter']
 
@@ -217,10 +237,18 @@ if __name__ == '__main__':
     eval_img_paths = [os.path.join('./images/',s) for s in eval_img_names if s.endswith('.jpg')]
     logger = SummaryWriter(f'./logs/{job_name}')
 
+    model = model.cuda()
+
+    # Model Distributed
+    model_without_ddp = model
+    if distributed:
+        model = DistributedDataParallel(model, device_ids=[args.local_rank])
+        model_without_ddp = model.module
+
     # optimizer setup
     params = []
     # set weight decay only on conv.weight
-    for key, value in model.named_parameters():
+    for key, value in model_without_ddp.named_parameters():
         if 'conv.weight' in key:
             params += [{'params':value, 'weight_decay':decay_SGD}]
         else:
@@ -248,20 +276,21 @@ if __name__ == '__main__':
     for iter_i in range(start_iter, int(round(500000 * iter_scale))):
         # evaluation
         if iter_i % args.eval_interval == 0 and (args.dataset != 'COCO' or iter_i > 0):
-            with timer.contexttimer() as t0:
-                model.eval()
-                model_eval = api.Detector(conf_thres=0.005, model=model)
-                dts = model_eval.detect_imgSeq(val_img_dir, input_size=target_size, gt_path=val_json)
-                str_0 = val_set.evaluate_dtList(dts, metric='AP')
-            s = f'\nCurrent time: [ {timer.now()} ], iteration: [ {iter_i} ]\n\n'
-            s += str_0 + '\n\n'
-            s += f'Validation elapsed time: [ {t0.time_str} ]'
-            print(s)
-            logger.add_text('Validation summary', s, iter_i)
-            logger.add_scalar('Validation AP[IoU=0.5]', val_set._getAP(0.5), iter_i)
-            logger.add_scalar('Validation AP[IoU=0.75]', val_set._getAP(0.75), iter_i)
-            logger.add_scalar('Validation AP[IoU=0.5:0.95]', val_set._getAP(), iter_i)
-            model.train()
+            if is_main_process():
+                with timer.contexttimer() as t0:
+                    model.eval()
+                    model_eval = api.Detector(conf_thres=0.005, model=model)
+                    dts = model_eval.detect_imgSeq(val_img_dir, input_size=target_size, gt_path=val_json)
+                    str_0 = val_set.evaluate_dtList(dts, metric='AP')
+                s = f'\nCurrent time: [ {timer.now()} ], iteration: [ {iter_i} ]\n\n'
+                s += str_0 + '\n\n'
+                s += f'Validation elapsed time: [ {t0.time_str} ]'
+                print(s)
+                logger.add_text('Validation summary', s, iter_i)
+                logger.add_scalar('Validation AP[IoU=0.5]', val_set._getAP(0.5), iter_i)
+                logger.add_scalar('Validation AP[IoU=0.75]', val_set._getAP(0.75), iter_i)
+                logger.add_scalar('Validation AP[IoU=0.5:0.95]', val_set._getAP(), iter_i)
+                model.train()
 
         # subdivision loop
         optimizer.zero_grad()
@@ -288,7 +317,7 @@ if __name__ == '__main__':
             current_lr = scheduler.get_last_lr()[0] * batch_size * subdivision
             print(f'[Iteration {iter_i}] [learning rate {current_lr:.3g}]',
                   f'[Total loss {loss:.2f}] [img size {dataset.img_size}]')
-            print(model.loss_str)
+            print(model_without_ddp.loss_str)
             max_cuda = torch.cuda.max_memory_allocated(0) / 1024 / 1024 / 1024
             print(f'Max GPU memory usage: {max_cuda} GigaBytes')
             torch.cuda.reset_peak_memory_stats(0)
@@ -300,30 +329,40 @@ if __name__ == '__main__':
             else:
                 low = 10 if args.dataset == 'COCO' else 16
                 imgsize = random.randint(low, 21) * 32
-            dataset.img_size = imgsize
-            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                                num_workers=num_cpu, pin_memory=True, drop_last=False)
+            dataset.img_size = all_gather(imgsize)[0]
+            if distributed:
+                epoch = sampler.epoch
+                sampler = DistributedSampler(dataset)
+                sampler.set_epoch(epoch + 1)
+                dataloader = DataLoader(dataset, batch_size=ims_per_gpu, sampler=sampler,
+                                        num_workers=num_cpu, pin_memory=True, drop_last=False)
+            else:
+                dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+                                        num_workers=num_cpu, pin_memory=True, drop_last=False)
             dataiterator = iter(dataloader)
 
         # save checkpoint
         if (iter_i > 0 and (iter_i % args.checkpoint_interval == 0)) or iter_i == int(round(500000 * iter_scale)) - 1:
-            state_dict = {
-                'iter': iter_i,
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            }
-            save_path = os.path.join('./weights', f'{job_name}_{today}_{iter_i}.ckpt')
-            torch.save(state_dict, save_path)
+            if is_main_process():
+                state_dict = {
+                    'iter': iter_i,
+                    'model': model_without_ddp.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }
+                save_path = os.path.join('./weights', f'{job_name}_{today}_{iter_i}.ckpt')
+                torch.save(state_dict, save_path)
+                print(f"save model: {save_path}")
 
         # save detection
         if iter_i > 0 and iter_i % args.img_interval == 0:
-            for img_path in eval_img_paths:
-                eval_img = Image.open(img_path)
-                dts = api.detect_once(model, eval_img, conf_thres=0.1, input_size=target_size)
-                np_img = np.array(eval_img)
-                visualization.draw_dt_on_np(np_img, dts)
-                np_img = cv2.resize(np_img, (416,416))
-                # cv2.imwrite(f'./results/eval_imgs/{job_name}_{today}_{iter_i}.jpg', np_img)
-                logger.add_image(img_path, np_img, iter_i, dataformats='HWC')
+            if is_main_process():
+                for img_path in eval_img_paths:
+                    eval_img = Image.open(img_path)
+                    dts = api.detect_once(model, eval_img, conf_thres=0.1, input_size=target_size)
+                    np_img = np.array(eval_img)
+                    visualization.draw_dt_on_np(np_img, dts)
+                    np_img = cv2.resize(np_img, (416,416))
+                    # cv2.imwrite(f'./results/eval_imgs/{job_name}_{today}_{iter_i}.jpg', np_img)
+                    logger.add_image(img_path, np_img, iter_i, dataformats='HWC')
 
-            model.train()
+                model.train()
