@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # dataloader setting
     batch_size = args.batch_size
     num_cpu = 0 if args.debug or batch_size == 1 else 4
-    assert 128 % batch_size == 0
+    assert batch_size <= 128 and 128 % batch_size == 0
     subdivision = 128 // batch_size
     enable_aug = True
     multiscale = True
@@ -303,6 +303,8 @@ if __name__ == '__main__':
             # visualization.imshow_tensor(imgs)
             imgs = imgs.cuda()
             loss = model(imgs, targets, labels_cats=cats)
+            loss_str = loss.item()
+            loss *= num_gpus
             loss.backward()
         optimizer.step()
         scheduler.step()
@@ -316,7 +318,7 @@ if __name__ == '__main__':
             print(f'\nTotal time: {time_used}, iter: {avg_iter}, epoch: {avg_epoch}')
             current_lr = scheduler.get_last_lr()[0] * batch_size * subdivision
             print(f'[Iteration {iter_i}] [learning rate {current_lr:.3g}]',
-                  f'[Total loss {loss:.2f}] [img size {dataset.img_size}]')
+                  f'[Total loss {loss_str:.2f}] [img size {dataset.img_size}]')
             print(model_without_ddp.loss_str)
             max_cuda = torch.cuda.max_memory_allocated(0) / 1024 / 1024 / 1024
             print(f'Max GPU memory usage: {max_cuda} GigaBytes')
