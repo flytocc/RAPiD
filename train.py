@@ -352,7 +352,7 @@ if __name__ == '__main__':
                 low = 10 if args.dataset == 'COCO' else 16
                 imgsize = random.randint(low, 21) * 32
             dataset.img_size = all_gather(imgsize)[0]
-            dataloader_seed += 1
+            dataloader_seed = all_gather(random.randint(0, 2**32))[0]
             if distributed:
                 sampler = DistributedSampler(dataset)
                 sampler.set_epoch(dataloader_seed)
