@@ -3,7 +3,7 @@ import os
 import argparse
 import random
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, RandomSampler
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.tensorboard import SummaryWriter
 from PIL import Image
@@ -15,6 +15,22 @@ from utils import MWtools, timer, visualization
 import api
 
 from utils.utils import get_world_size, is_main_process, setup_for_distributed, all_gather
+
+
+class SeedRandomSampler(RandomSampler):
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.epoch)
+
+        n = len(self.data_source)
+        if self.replacement:
+            rand_tensor = torch.randint(high=n, size=(self.num_samples,), dtype=torch.int64, generator=g)
+            return iter(rand_tensor.tolist())
+        return iter(torch.randperm(n, generator=g).tolist())
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
 
 
 def parse_args():
@@ -50,7 +66,7 @@ if __name__ == '__main__':
         torch.distributed.init_process_group(backend="nccl", init_method="env://")
         setup_for_distributed()
     num_gpus = get_world_size()
-    distributed = num_gpus > 1
+    distributed = args.multi_gpu
 
     # -------------------------- settings ---------------------------
     target_size = 1024 if args.high_resolution else 608
@@ -206,12 +222,16 @@ if __name__ == '__main__':
 
     assert batch_size % num_gpus == 0
     ims_per_gpu = batch_size // num_gpus
+    dataloader_seed = all_gather(random.randint(0, 2**32))[0]
     if distributed:
         sampler = DistributedSampler(dataset)
+        sampler.set_epoch(dataloader_seed)
         dataloader = DataLoader(dataset, batch_size=ims_per_gpu, sampler=sampler,
                                 num_workers=num_cpu, pin_memory=True, drop_last=False)
     else:
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+        sampler = SeedRandomSampler(dataset)
+        sampler.set_epoch(dataloader_seed)
+        dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                                 num_workers=num_cpu, pin_memory=True, drop_last=False)
     dataiterator = iter(dataloader)
     
@@ -332,14 +352,16 @@ if __name__ == '__main__':
                 low = 10 if args.dataset == 'COCO' else 16
                 imgsize = random.randint(low, 21) * 32
             dataset.img_size = all_gather(imgsize)[0]
+            dataloader_seed += 1
             if distributed:
-                epoch = sampler.epoch
                 sampler = DistributedSampler(dataset)
-                sampler.set_epoch(epoch + 1)
+                sampler.set_epoch(dataloader_seed)
                 dataloader = DataLoader(dataset, batch_size=ims_per_gpu, sampler=sampler,
                                         num_workers=num_cpu, pin_memory=True, drop_last=False)
             else:
-                dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, 
+                sampler = SeedRandomSampler(dataset)
+                sampler.set_epoch(dataloader_seed)
+                dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                                         num_workers=num_cpu, pin_memory=True, drop_last=False)
             dataiterator = iter(dataloader)
 
@@ -368,3 +390,19 @@ if __name__ == '__main__':
                     logger.add_image(img_path, np_img, iter_i, dataformats='HWC')
 
                 model.train()
+
+    if is_main_process():
+        with timer.contexttimer() as t0:
+            model.eval()
+            model_eval = api.Detector(conf_thres=0.005, model=model)
+            dts = model_eval.detect_imgSeq(val_img_dir, input_size=target_size, gt_path=val_json)
+            str_0 = val_set.evaluate_dtList(dts, metric='AP')
+        s = f'\nCurrent time: [ {timer.now()} ], iteration: [ {iter_i} ]\n\n'
+        s += str_0 + '\n\n'
+        s += f'Validation elapsed time: [ {t0.time_str} ]'
+        print(s)
+        logger.add_text('Validation summary', s, iter_i)
+        logger.add_scalar('Validation AP[IoU=0.5]', val_set._getAP(0.5), iter_i)
+        logger.add_scalar('Validation AP[IoU=0.75]', val_set._getAP(0.75), iter_i)
+        logger.add_scalar('Validation AP[IoU=0.5:0.95]', val_set._getAP(), iter_i)
+        model.train()
