@@ -2,6 +2,7 @@ import json
 from collections import defaultdict
 import numpy as np
 import torch
+from tqdm import tqdm
 from .iou_mask import iou_mask, iou_rle
 
 
@@ -102,7 +103,7 @@ class MWeval():
         tps = [] # list of tensors
         scores = [] # list of tensors
         num_gt = 0 # number of gts in the whole dataset
-        for img_id in self.img_ids:
+        for img_id in tqdm(self.img_ids):
             dts_info, gts_info = self.dts[img_id], self.gts[img_id]
 
             dts = torch.zeros(len(dts_info),6)

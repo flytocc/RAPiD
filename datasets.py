@@ -179,6 +179,18 @@ class Dataset4YoloAngle(torch.utils.data.Dataset):
         if self.enable_aug:
             img, labels[:gt_num] = self.augment_PIL(img, labels[:gt_num])
 
+        _labels = labels[:gt_num]
+        keep = (
+            (_labels[:, 0] > 0) &
+            (_labels[:, 1] > 0) &
+            (_labels[:, 0] < img.size[0]) &
+            (_labels[:, 1] < img.size[1])
+        )
+        gt_num = sum(keep)
+
+        labels = torch.zeros(self.max_labels, 5)
+        labels[:gt_num] = _labels[keep]
+
         # pad to square
         img, labels[:gt_num], pad_info = rect_to_square(img, labels[:gt_num],
                             self.img_size, pad_value=0, aug=self.enable_aug)

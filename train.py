@@ -238,7 +238,7 @@ if __name__ == '__main__':
     if args.model == 'rapid_pL1':
         from models.rapid import RAPiD
         model = RAPiD(backbone=args.backbone, img_norm=False,
-                       loss_angle='period_L1')
+                       loss_angle='period_L1')  # 61.523734 M
     elif args.model == 'rapid_pL2':
         from models.rapid import RAPiD
         model = RAPiD(backbone=args.backbone, img_norm=False,
@@ -295,7 +295,7 @@ if __name__ == '__main__':
     start_time = timer.tic()
     for iter_i in range(start_iter, int(round(500000 * iter_scale))):
         # evaluation
-        if iter_i % args.eval_interval == 0 and (args.dataset != 'COCO' or iter_i > 0):
+        if (iter_i > 0 and iter_i % args.eval_interval == 0) and (args.dataset != 'COCO' or iter_i > 0):
             if is_main_process():
                 with timer.contexttimer() as t0:
                     model.eval()
@@ -316,10 +316,10 @@ if __name__ == '__main__':
         optimizer.zero_grad()
         for inner_iter_i in range(subdivision):
             try:
-                imgs, targets, cats, _, _ = next(dataiterator)  # load a batch
+                imgs, targets, cats, img_ids, _ = next(dataiterator)  # load a batch
             except StopIteration:
                 dataiterator = iter(dataloader)
-                imgs, targets, cats, _, _ = next(dataiterator)  # load a batch
+                imgs, targets, cats, img_ids, _ = next(dataiterator)  # load a batch
             # visualization.imshow_tensor(imgs)
             imgs = imgs.cuda()
             loss = model(imgs, targets, labels_cats=cats)
