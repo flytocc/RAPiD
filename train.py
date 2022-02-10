@@ -249,7 +249,7 @@ if __name__ == '__main__':
         print("loading ckpt...", args.checkpoint)
         weights_path = os.path.join('./weights/', args.checkpoint)
         state = torch.load(weights_path, map_location='cpu')
-        model.load_state_dict(state['model'])
+        model.load_state_dict(state['model_state_dict'] if 'model_state_dict' in state else state['model'])
         start_iter = state['iter']
 
     val_set = MWtools.MWeval(val_json, iou_method='rle')

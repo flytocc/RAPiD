@@ -40,7 +40,8 @@ class Detector():
         print(f'Successfully initialized model {model_name}.',
             'Total number of trainable parameters:', total_params)
 
-        model.load_state_dict(torch.load(weights_path, map_location='cpu')['model'])
+        state = torch.load(weights_path, map_location='cpu')
+        model.load_state_dict(state['model_state_dict'] if 'model_state_dict' in state else state['model'])
         print(f'Successfully loaded weights: {weights_path}')
         model.eval()
         if kwargs.get('use_cuda', True):

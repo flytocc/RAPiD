@@ -35,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--metric', type=str,
                         default='AP',
                         choices=['AP', 'F', 'counting'])
+    parser.add_argument('--high_resolution', action='store_true')
     parser.add_argument('--weight', type=str)
     args = parser.parse_args()
 
@@ -44,7 +45,11 @@ if __name__ == "__main__":
 
     # Run RAPiD on the image sequence
     conf_thres = 0.005 if args.metric == 'AP' else 0.3
-    dts_json = rapid.detect_imgSeq(args.imgs_path, input_size=1024, conf_thres=conf_thres)
+    dts_json = rapid.detect_imgSeq(
+        args.imgs_path,
+        input_size=1024 if args.high_resolution else 608,
+        conf_thres=conf_thres,
+        gt_path=args.gt_path)
 
     # Calculate metric
     if args.metric == 'AP':
